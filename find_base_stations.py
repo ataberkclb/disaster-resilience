@@ -1,4 +1,5 @@
 import json
+import math
 import geopandas as gpd
 import seaborn
 from shapely.geometry import Point
@@ -120,7 +121,7 @@ def load_bs(params):
                                 all_freqs.add(frequency)
                                 main_direction = antenna.get('angle')
                                 if main_direction != 'Omnidirectional':  # we only consider three-sectorized antenna's
-                                   power = 10 * math.log10(settings.POWER_PERCENTAGE) + (
+                                    power = 10 * math.log10(settings.POWER_PERCENTAGE) + (
                                                antenna.get("power") + 30)  # We convert ERP power in dBW to dBm
                                     height = bs.get('antennas')[str(0)].get("height")
 

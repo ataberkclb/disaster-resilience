@@ -163,7 +163,6 @@ def interference(params, user_id, bs_id, freq, user_coords, bs_interferers, user
             return 0, params
 
 
-<<<<<<< HEAD
 def conditions_true(p, userprovider, BSprovider, technology, area):
     if p.back_up:
         if userprovider == BSprovider:
@@ -180,7 +179,6 @@ def conditions_true(p, userprovider, BSprovider, technology, area):
             return True
     else:
         return True
-=======
 def find_links_new(p):
     links = util.from_data(f'data/Realisations/{p.filename}{p.seed}_links.p')
     snrs = util.from_data(f'data/Realisations/{p.filename}{p.seed}_snrs.p')
@@ -460,7 +458,7 @@ def find_links_new(p):
                             newP_dBm = util.to_db(newP)
                             c.update_power(newP) # Power in mW
                     else:
-                        c.update_power(Sleep_Power)
+                        c.update_power(0)
             bar.finish()
             # Calculate the total power
             total_p = 0.0
@@ -580,7 +578,6 @@ def find_links_new(p):
     #return links, channel_link, snrs, sinrs, capacities, FDP, FSP, connections
     #return links_fp, channel_link_fp, snrs_fp, sinrs_fp, capacities_fp, FDP_fp, FSP_fp, connections_fp, total_p_fp
     return [links, links_fp], [channel_link, channel_link_fp], [snrs, snrs_fp], [sinrs, sinrs_fp], [capacities, capacities_fp], [FDP, FDP_fp], [FSP, FSP_fp], [connections, connections_fp], [power_per_MNO, power_per_MNO_fp]#[total_p, total_p_fp]
->>>>>>> 7eb9572ee25f2e24a5bf1c06d1048e43b3651f22
 
 
 def find_links(p):

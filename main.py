@@ -19,7 +19,7 @@ municipalities = ['Middelburg', 'Enschede', 'Amsterdam']
 # municipalities = ['Amsterdam']
 
 # provinces = ['Noord-Holland']
-municipalities = ['Amsterdam']
+# municipalities = ['Amsterdam']
 
 # MNOS = [['KPN'], ['T-Mobile'], ['Vodafone'], ['KPN', 'Vodafone', 'T-Mobile']]
 # MNOS = [['KPN'], ['T-Mobile'], ['Vodafone']]
@@ -161,8 +161,7 @@ for technology in [None]: #technologies:
                 fsp_per_MNO.append(fsp_per_MNO_aux)
                 fdp_per_MNO_fp.append(fdp_per_MNO_fp_aux)
                 fsp_per_MNO_fp.append(fsp_per_MNO_fp_aux)
-                #links, link_channel, snr, sinr, capacity, FDP, FSP, connections = models.find_links(params)
-
+                """ #links, link_channel, snr, sinr, capacity, FDP, FSP, connections = models.find_links(params)
                 # links, link_channel, snr, sinr, capacity, FDP, FSP, interference_loss, connections = models.find_links_QoS(params)
                 #
                 fraction_satisified_pop = sum(FSP) / params.number_of_users
@@ -179,8 +178,7 @@ for technology in [None]: #technologies:
                     MNO = user.provider
                     id = user.id
                     fdp_per_MNO[MNO].append(FDP[id])
-                    fsp_per_MNO[MNO].append(FSP[id])
-
+                    fsp_per_MNO[MNO].append(FSP[id]) """
 
                 for k, v in connections[0].items():
                     for i, j in v.items():
@@ -205,7 +203,7 @@ for technology in [None]: #technologies:
                 util.to_data(fdp_per_MNO_fp, f'data/Realisations/{params.filename}{max_iterations}_fdp_per_MNO_fp.p')
                 util.to_data(fsp_per_MNO_fp, f'data/Realisations/{params.filename}{max_iterations}_fsp_per_MNO_fp.p')
 
-        if type(MNOS[0]) == list and len(MNOS[0]) == 1:
+        """ if type(MNOS[0]) == list and len(MNOS[0]) == 1:
             lijst = [MNOS[i][0] for i in range(len(MNOS))]
         elif len(MNOS[0]) > 1:
             lijst = MNOS[0]
@@ -217,10 +215,11 @@ for technology in [None]: #technologies:
             print(province, ':', [sum(fsp_per_MNO[MNO]) / len(fsp_per_MNO[MNO]) for MNO in lijst])
         else:
             print(municipality, ':', [sum(fdp_per_MNO[MNO]) / len(fdp_per_MNO[MNO]) for MNO in lijst])
-            print(municipality, ':', [sum(fsp_per_MNO[MNO]) / len(fsp_per_MNO[MNO]) for MNO in lijst]) 
+            print(municipality, ':', [sum(fsp_per_MNO[MNO]) / len(fsp_per_MNO[MNO]) for MNO in lijst]) """
 
-        util.to_data(fdp_per_MNO, f'data/Realisations/{params.filename}{max_iterations}_fdp_per_MNO.p')
+        """ util.to_data(fdp_per_MNO, f'data/Realisations/{params.filename}{max_iterations}_fdp_per_MNO.p')
         util.to_data(fsp_per_MNO, f'data/Realisations/{params.filename}{max_iterations}_fsp_per_MNO.p')
         if with_power_control:
             util.to_data(fdp_per_MNO_fp, f'data/Realisations/{params.filename}{max_iterations}_fdp_per_MNO_fp.p')
-            util.to_data(fsp_per_MNO_fp, f'data/Realisations/{params.filename}{max_iterations}_fsp_per_MNO_fp.p') 
+            util.to_data(fsp_per_MNO_fp, f'data/Realisations/{params.filename}{max_iterations}_fsp_per_MNO_fp.p') """
+
