@@ -332,13 +332,19 @@ def find_links_new(p):
         capacities_fp, FSP_fp = find_capacity(p, sinrs_fp)
         
         # Calculate the total power
-        total_p_fp = 0
+        total_p_fp = 0.0
         power_per_MNO_fp = {MNO: 0 for MNO in ['KPN', 'T-Mobile', 'Vodafone']}
         for bs in p.BaseStations:
+            #base_station_totalpower = 0
+            base_station_totalpower = settings.POWER_DSP + settings.POWER_AIRCOND + settings.MICROWAVELINK_POWER + settings.POWER_RECT
+            print(f"Base station {bs.id}, initial total power: {base_station_totalpower} W")
             for c in bs.channels:
-                # first convert from dBm to dBW (-30)
-                total_p_fp += util.to_pwr(c.power -30)
-                power_per_MNO_fp[bs.provider] += util.to_pwr(c.power - 30)
+                channel_power = util.to_pwr(c.power - 30)
+                channel_power /= settings.poweramp_eff
+                base_station_totalpower += channel_power  # add power cons. of the current channel to the total power
+                print(f"Channel {c.id} from BS {bs.id}, channel power: {channel_power} W, adjusted total: {base_station_totalpower} W")
+            power_per_MNO_fp[bs.provider] += base_station_totalpower
+            total_p_fp += base_station_totalpower    
         
 
         # Recalculate the SINRs (and everything that depends on it, e.g FSP) here using only the necessary power to meet the requiremets? Maybe after that, more users cold be conected due to less interference.
@@ -454,19 +460,22 @@ def find_links_new(p):
                             newP_dBm = util.to_db(newP)
                             c.update_power(newP) # Power in mW
                     else:
-                        c.update_power(0)
+                        c.update_power(Sleep_Power)
             bar.finish()
             # Calculate the total power
-            total_p = 0
+            total_p = 0.0
             power_per_MNO = {MNO: 0 for MNO in ['KPN', 'T-Mobile', 'Vodafone']}
             for bs in p.BaseStations:
+                #bs_totalpower = 0  # initialize total power cons. for the current BS
+                bs_totalpower = settings.POWER_DSP + settings.POWER_AIRCOND + settings.MICROWAVELINK_POWER + settings.POWER_RECT
                 for c in bs.channels:
-                    # first convert from dBm to dBW (-30)
-                    total_p += util.to_pwr(c.power - 30)
-                    power_per_MNO[bs.provider] += util.to_pwr(c.power - 30)
-            #print(f"Power iteration {iter}: {total_p}")
+                    channel_power = util.to_pwr(c.power - 30)
+                    channel_power /= settings.poweramp_eff
+                    bs_totalpower += channel_power  # add power cons. of the current channel to the total power
+                power_per_MNO[bs.provider] += bs_totalpower
+                total_p += bs_totalpower
+                    
         
-
         fraction_power = total_p_fp/total_p
 
 
