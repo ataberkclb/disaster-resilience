@@ -120,8 +120,8 @@ def load_bs(params):
                                 all_freqs.add(frequency)
                                 main_direction = antenna.get('angle')
                                 if main_direction != 'Omnidirectional':  # we only consider three-sectorized antenna's
-                                    power = POWER_PERCENTAGE * (
-                                            antenna.get("power") + 30)  # We convert ERP power in dBW to dBm
+                                   power = 10 * math.log10(settings.POWER_PERCENTAGE) + (
+                                               antenna.get("power") + 30)  # We convert ERP power in dBW to dBm
                                     height = bs.get('antennas')[str(0)].get("height")
 
                                     new_bs.add_channel(key, new_bs.id, height, frequency, power, main_direction,
