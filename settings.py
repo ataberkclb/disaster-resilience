@@ -43,6 +43,15 @@ MINIMUM_SNR = 5  # - math.inf # 5 # dB
 
 CUTOFF_VALUE_INTERFERENCE = 3  # the x highest signal BSs will not interfere.
 POWER_PERCENTAGE = 0.9
-
+poweramp_eff = 0.12
+POWER_PERCENTAGE *= poweramp_eff
 PRECISION_MARGIN = 10e-6 # Margin used in the calculations of FDP and FSP
 # ASSUMPTION maybe change the power percentage!
+
+POWER_DSP = 100 #in Watt, digital signal processor unit
+POWER_AIRCOND = 225  # in Watt
+MICROWAVELINK_POWER = 80  # in Watt
+POWER_RECT = 100  # in Watt, rectifier
+
+
+
