@@ -290,7 +290,7 @@ def find_links_new(p):
         # print('Total number of disconnected users:', len(disconnected_users), 'out of', len(p.users))
         # print('Disconnected per MNO:', disconnected)
 
-
+        Sleep_Power = 75
         for user in disconnected_users:
             best_SINR = - math.inf
             best_measure = -math.inf
@@ -458,7 +458,7 @@ def find_links_new(p):
                             newP_dBm = util.to_db(newP)
                             c.update_power(newP) # Power in mW
                     else:
-                        c.update_power(0)
+                        c.update_power(Sleep_Power)
             bar.finish()
             # Calculate the total power
             total_p = 0.0
