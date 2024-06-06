@@ -334,16 +334,22 @@ def find_links_new(p):
         power_per_MNO_fp = {MNO: 0 for MNO in ['KPN', 'T-Mobile', 'Vodafone']}
         for bs in p.BaseStations:
             #base_station_totalpower = 0
-            base_station_totalpower = settings.POWER_DSP + settings.POWER_AIRCOND + settings.MICROWAVELINK_POWER + settings.POWER_RECT
+            base_station_totalpower = settings.POWER_DSP + settings.POWER_AIRCOND + settings.MICROWAVELINK_POWER + settings.POWER_RECT + + settings.POWER_TRANSCEIVER
             print(f"Base station {bs.id}, initial total power: {base_station_totalpower} W")
             for c in bs.channels:
-                channel_power = util.to_pwr(c.power - 30)
-                channel_power /= settings.poweramp_eff
+                if len(c.users) == 0: # when there is no user connected, enter the BSs sleep mode
+                    channel_power = settings.SLEEP_POWER
+                else:
+                    channel_power = util.to_pwr(c.power - 30)
+                    channel_power /= settings.poweramp_eff
                 base_station_totalpower += channel_power  # add power cons. of the current channel to the total power
-                print(f"Channel {c.id} from BS {bs.id}, channel power: {channel_power} W, adjusted total: {base_station_totalpower} W")
+
             power_per_MNO_fp[bs.provider] += base_station_totalpower
-            total_p_fp += base_station_totalpower    
-        
+            total_p_fp += base_station_totalpower
+    
+        # channel_power = util.dbm_to_pwr(c.power - 30)  # Convert from dBm to mW once
+        # power_per_MNO_fp[bs.provider] += channel_power  # Accumulate power per MNO
+        # base_station_totalpower += channel_power
 
         # Recalculate the SINRs (and everything that depends on it, e.g FSP) here using only the necessary power to meet the requiremets? Maybe after that, more users cold be conected due to less interference.
         # TODO: 
@@ -458,7 +464,7 @@ def find_links_new(p):
                             newP_dBm = util.to_db(newP)
                             c.update_power(newP) # Power in mW
                     else:
-                        c.update_power(Sleep_Power)
+                        c.update_power(0)
             bar.finish()
             # Calculate the total power
             total_p = 0.0
@@ -467,9 +473,13 @@ def find_links_new(p):
                 #bs_totalpower = 0  # initialize total power cons. for the current BS
                 bs_totalpower = settings.POWER_DSP + settings.POWER_AIRCOND + settings.MICROWAVELINK_POWER + settings.POWER_RECT
                 for c in bs.channels:
-                    channel_power = util.to_pwr(c.power - 30)
-                    channel_power /= settings.poweramp_eff
+                    if len(c.users) == 0: #sleep mode integration
+                        channel_power = settings.SLEEP_POWER
+                    else:
+                        channel_power = util.to_pwr(c.power - 30)
+                        channel_power /= settings.poweramp_eff
                     bs_totalpower += channel_power  # add power cons. of the current channel to the total power
+
                 power_per_MNO[bs.provider] += bs_totalpower
                 total_p += bs_totalpower
                     
