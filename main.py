@@ -47,7 +47,7 @@ increases = [50, 100, 200]
 random = [0]
 
 
-max_iterations = 50
+max_iterations = 2 #50
 
 # technologies = None #[[util.BaseStationRadioType.NR]]
 technologies = [[util.BaseStationRadioType.UMTS], [util.BaseStationRadioType.NR], [util.BaseStationRadioType.LTE]]
