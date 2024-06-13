@@ -39,7 +39,7 @@ back_up = True
 
 # sharing = ['T-Mobile', 'Vodafone']
 sharing = MNOS[0]
-
+#sharing = None (no cooperation)
 radii = [500, 1000, 2500]
 increases = [50, 100, 200]
 #random = [0.05, 0.1, 0.25, 0.5]
