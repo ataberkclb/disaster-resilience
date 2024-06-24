@@ -5,9 +5,9 @@ import util
 from model_3GPP import *
 import cvxpy as cp
 import copy
+import scipy
+import matplotlib.pyplot as plt
 
-
-# code adapted from Bart Meyers: https://github.com/BartJM/ResilSimulator
 
 def snr(user, base_station, channel, params):
     user_coords = (user.x, user.y)
@@ -53,6 +53,7 @@ def snr_interf(bs, base_station, channel, params):
         return 0
 
 
+
 def sinr(user, base_station, channel, params):
     user_coords = (user.x, user.y)
     bs_coords = (base_station.x, base_station.y)
@@ -63,20 +64,29 @@ def sinr(user, base_station, channel, params):
 
     if d2d <= 5_000 and util.to_pwr(power) != 0:
         antenna_gain = find_antenna_gain(channel.main_direction, util.find_geo(bs_coords, user_coords))
-        path_loss, params = pathloss(params, user.id, base_station.id, base_station.area_type, d2d, d3d,
-                                     channel.frequency, channel.height)
+        path_loss, params = pathloss(params, user.id, base_station.id, base_station.area_type, d2d, d3d, channel.frequency, channel.height)
         if path_loss < math.inf:
             bandwidth = channel.bandwidth
             radio = base_station.radio
             noise = find_noise(bandwidth, radio)
-            interf, params = interference(params, user.id, base_station.id, channel.frequency, user_coords,
-                                          channel.bs_interferers, user_height=settings.UE_HEIGHT)
-            return util.to_db(util.to_pwr(power) * util.to_pwr(antenna_gain) / util.to_pwr(path_loss) / (
-                    util.to_pwr(noise) + interf)), params
+            interf, params = interference(params, user.id, base_station.id, channel.frequency, user_coords, channel.bs_interferers, user_height=settings.UE_HEIGHT)
+            return util.to_db(util.to_pwr(power) * util.to_pwr(antenna_gain) / util.to_pwr(path_loss) / (util.to_pwr(noise) + interf)), params
         else:
             return -math.inf, params
     else:
         return - math.inf, params
+
+def calculate_required_power(user, base_station, channel, params):
+    user_coords = (user.x, user.y)
+    bs_coords = (base_station.x, base_station.y)
+    d2d = util.distance_2d(bs_coords[0], bs_coords[1], user_coords[0], user_coords[1])
+    d3d = util.distance_3d(channel.height, settings.UE_HEIGHT, d2d=d2d)
+    path_loss, params = pathloss(params, user.id, base_station.id, base_station.area_type, d2d, d3d, channel.frequency, channel.height)
+    # Ensure noise calculation is correct
+    noise = find_noise(channel.bandwidth, base_station.radio)
+    # Required power calculation based on minimum SNR, path loss, and noise
+    required_power = settings.MINIMUM_SNR + path_loss - noise
+    return util.dbm_to_pwr(required_power)
 
 
 def find_antenna_gain(bore, geo):
@@ -101,14 +111,12 @@ def thermal_noise(bandwidth):
     thermal_noise = settings.BOLTZMANN * settings.TEMPERATURE * bandwidth
     return 10 * math.log10(thermal_noise) + 30  # 30 is to go from dBW to dBm
 
-
 def find_noise(bandwidth, radio):
     if radio == util.BaseStationRadioType.NR:
         noise_figure = 7.8
     else:
         noise_figure = 5
     return thermal_noise(bandwidth) + noise_figure
-
 
 def find_closest_angle(bs_coords, user_coords, directions, id_s):
     geo = util.find_geo(bs_coords, user_coords)
@@ -117,7 +125,6 @@ def find_closest_angle(bs_coords, user_coords, directions, id_s):
     dirs = [min(abs(bore - geo), abs(bore - geo - 360)) for bore in directions]
     return int(id_s[np.argmin(dirs)])
 
-
 def interference(params, user_id, bs_id, freq, user_coords, bs_interferers, user_height):
     interf = []
     bs_interf_coord = (params.BaseStations[bs_id].x, params.BaseStations[bs_id].y)
@@ -125,36 +132,23 @@ def interference(params, user_id, bs_id, freq, user_coords, bs_interferers, user
         return params.interference[freq][user_id, bs_id], params
     else:
         for base_station in bs_interferers[settings.CUTOFF_VALUE_INTERFERENCE:]:
-            # find the channel with the direction closest to the BS, as sectorized antenna's will not all interfere with a user (when on the same freq)
             bs_coords = (base_station.x, base_station.y)
-
             if bs_coords != bs_interf_coord:
-                directions = list()
-                ids = list()
-
-                for channel in base_station.channels:
-                    if channel.frequency == freq:
-                        directions.append(channel.main_direction)
-                        ids.append(channel.id)
-
+                directions = [channel.main_direction for channel in base_station.channels if channel.frequency == freq]
+                ids = [channel.id for channel in base_station.channels if channel.frequency == freq]
                 channel_id = find_closest_angle(bs_coords, user_coords, directions, ids)
 
-                for c in base_station.channels:
-                    if int(c.id) == channel_id:
-                        interfering_channel = c
+                for channel in base_station.channels:
+                    if int(channel.id) == channel_id:
+                        interfering_channel = channel
 
                 power = interfering_channel.power
-
                 d2d = util.distance_2d(bs_coords[0], bs_coords[1], user_coords[0], user_coords[1])
                 d3d = util.distance_3d(h1=interfering_channel.height, h2=user_height, d2d=d2d)
 
                 if d2d <= 10_000:
-                    antenna_gain = find_antenna_gain(interfering_channel.main_direction,
-                                                     util.find_geo(bs_coords, user_coords))
-
-                    path_loss, params = pathloss(params, user_id, base_station.id, base_station.area_type, d2d, d3d,
-                                                 interfering_channel.frequency,
-                                                 interfering_channel.height)
+                    antenna_gain = find_antenna_gain(interfering_channel.main_direction, util.find_geo(bs_coords, user_coords))
+                    path_loss, params = pathloss(params, user_id, base_station.id, base_station.area_type, d2d, d3d, interfering_channel.frequency, interfering_channel.height)
                     interf.append(util.to_pwr(power + antenna_gain - path_loss))
         if len(interf) > 0:
             params.interference[freq][user_id, bs_id] = sum(interf)
@@ -163,6 +157,11 @@ def interference(params, user_id, bs_id, freq, user_coords, bs_interferers, user
             params.interference[freq][user_id, bs_id] = 0
             return 0, params
 
+
+def clear_interference(self):
+    self.interference = dict()
+    for freq in self.all_freqs:
+        self.interference[freq] = scipy.sparse.lil_matrix((self.number_of_users, self.number_of_bs))
 
 def conditions_true(p, userprovider, BSprovider, technology, area):
     if p.back_up:
@@ -181,6 +180,73 @@ def conditions_true(p, userprovider, BSprovider, technology, area):
     else:
         return True
 
+
+def adjust_power(base_station, user, SINR, channel, p):
+    user_coords = (user.x, user.y)
+    bs_coords = (base_station.x, base_station.y)
+    d2d = util.distance_2d(base_station.x, base_station.y, user_coords[0], user_coords[1])
+    d3d = util.distance_3d(h1=channel.height, h2=settings.UE_HEIGHT, d2d=d2d)
+    antenna_gain = find_antenna_gain(channel.main_direction, util.find_geo(bs_coords, user_coords))
+    path_loss, p = pathloss(p, user.id, base_station.id, base_station.area_type, d2d, d3d, channel.frequency,
+                            channel.height)
+    noise = find_noise(channel.bandwidth, base_station.radio)
+    interf, p = interference(p, user.id, base_station.id, channel.frequency, user_coords, channel.bs_interferers,
+                             user_height=settings.UE_HEIGHT)
+
+    required_power = util.to_pwr(path_loss) * (util.to_pwr(noise) + interf) * (
+                2 ** (user.rate_requirement / channel.bandwidth) - 1) / util.to_pwr(antenna_gain)
+    if required_power > util.to_pwr(channel.max_power):
+        required_power = util.to_pwr(channel.max_power)
+
+    return required_power
+def update_power_after_reallocation_and_bandwidth(p):
+    before_power = []
+    after_power = []
+    for bs in p.BaseStations:
+        for channel in bs.channels:
+            if len(channel.users) > 0:
+                total_power = 0
+                for user_id in channel.users:
+                    user = p.users[user_id]
+                    user_coords = (user.x, user.y)
+                    d2d = util.distance_2d(bs.x, bs.y, user_coords[0], user_coords[1])
+                    d3d = util.distance_3d(channel.height, settings.UE_HEIGHT, d2d=d2d)
+                    antenna_gain = find_antenna_gain(channel.main_direction, util.find_geo((bs.x, bs.y), user_coords))
+                    path_loss, p = pathloss(p, user.id, bs.id, bs.area_type, d2d, d3d, channel.frequency,
+                                            channel.height)
+                    noise = find_noise(channel.bandwidth, bs.radio)
+                    interf, p = interference(p, user.id, bs.id, channel.frequency, user_coords, channel.bs_interferers,
+                                             user_height=settings.UE_HEIGHT)
+                    optimal_power = settings.MINIMUM_SNR + path_loss + noise + interf - antenna_gain
+                    total_power += util.to_pwr(optimal_power)
+
+                avg_power = total_power / len(channel.users)
+                if avg_power > channel.max_power:
+                    print(f"Warning: Required power {avg_power} exceeds max power {channel.max_power}")
+                    avg_power = channel.max_power
+
+                before_power.append(channel.power)
+                channel.update_power(avg_power)
+                after_power.append(channel.power)
+                print(f"Channel {channel.id} of BS {bs.id} updated to power {avg_power}")
+            else:
+                before_power.append(channel.power)
+                channel.update_power(0)
+                after_power.append(channel.power)
+                print(f"Channel {channel.id} of BS {bs.id} set to minimum power")
+            return before_power, after_power
+
+
+def plot_power_changes(before_power, after_power):
+    plt.figure(figsize=(12, 6))
+    plt.plot(before_power, label='Before Reallocation', color='blue')
+    plt.plot(after_power, label='After Reallocation', color='red')
+    plt.xlabel('Channel Index')
+    plt.ylabel('Power (dBm)')
+    plt.title('Power Changes Before and After Reallocation')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
 def find_links_new(p):
     links = util.from_data(f'data/Realisations/{p.filename}{p.seed}_links.p')
@@ -204,6 +270,10 @@ def find_links_new(p):
     power_per_MNO_fp = util.from_data(f'data/Realisations/{p.filename}{p.seed}_power_per_MNO_fp.p')
     connections_fp = util.from_data(f'data/Realisations/{p.filename}{p.seed}_connections_fp.p')
 
+    # Count connected users before reallocation
+    initial_connected_users = sum([len(c.users) for bs in p.BaseStations for c in bs.channels])
+    print(f"Total connected users before reallocation: {initial_connected_users}")
+
     # FDP_fp = None
     if FDP_fp is None:
         connections = None
@@ -214,7 +284,8 @@ def find_links_new(p):
         channel_link_fp = lil_matrix((p.number_of_users, p.number_of_bs))
         FDP_fp = np.zeros(p.number_of_users)
 
-        maximum = 20 # number of base stations
+        maximum = 20  # number of base stations
+        minimum_user_per_bs = 8  # number of user threshold #chosen comparing to power consumption result and trend was lower power consumption when this threshold reduced
 
         bar = progressbar.ProgressBar(maxval=p.number_of_users, widgets=[
             progressbar.Bar('=', f'Finding links {p.filename} [', ']'), ' ',
@@ -225,75 +296,55 @@ def find_links_new(p):
                           'T-Mobile': {'KPN': 0, 'T-Mobile': 0, 'Vodafone': 0},
                           'Vodafone': {'KPN': 0, 'T-Mobile': 0, 'Vodafone': 0},
                           'no': {'KPN': 0, 'T-Mobile': 0, 'Vodafone': 0}}
-
-        minimum_user_per_bs = 5 # number of user threshold
-
         disconnected_users = []
-        for user in p.users:
+        # finding the best bs for each user
+        p.clear_interference()  # Clear interference before new calculations
+        # Sort base stations by the number of connected users before allocation
+        bs_user_count = [(bs, sum([len(c.users) for c in bs.channels])) for bs in p.BaseStations]
+        bs_user_count.sort(key=lambda x: x[1])  # Sort by user count in ascending order
+        sorted_base_stations = [bs for bs, count in bs_user_count]
 
+        for user in p.users:
             bar.update(int(user.id))
             user_coords = (user.x, user.y)
             BSs = util.find_closest_BS(user_coords, p.xbs, p.ybs)
             best_SINR = - math.inf
+            best_power = math.inf
             best_measure = -math.inf
 
-# do not connect users to the closest BS(fnd all BSs) or add extra BSs to improve likelihood of finding better option
-    # Ensure chosen BS meets minimum SNR requirements with acceptable QoS
-        # For each canditatee BS, calculate SINR and power consumption required to serve the user
-            # Chose the BS that meets SINR requirements and minimizes the power consumption(lowest)
-                # update data structures and track power cons. for each MNO
-
-            for bs in BSs[:maximum]:  # assuming that the highest SINR BS will be within the closest 20 BSs
+            for bs in sorted_base_stations:  # assuming that the highest SINR BS will be within the closest () BSs
                 if bs != p.failed_BS:
-                    base_station = p.BaseStations[bs]
-                    if not p.back_up or (user.provider == base_station.provider and p.back_up):
-                        if not p.geographic_failure or (
-                                p.geographic_failure and (base_station.x, base_station.y) != p.failed_BS_coords):
-                            for channel in base_station.channels:
-                                SINR, p = sinr(user, base_station, channel, p)
-                                # a user connects to the BS with highest SINR/degree
-                                if SINR / max(1,
-                                              len(channel.users)) > best_measure and SINR >= settings.MINIMUM_SNR - settings.PRECISION_MARGIN:
-                                    best_bs = bs
-                                    channel_id = int(channel.id)
-                                    best_SINR = SINR
-                                    SNR, p = snr(user, base_station, channel, p)
-                                    best_measure = SINR / max(len(channel.users), 1)
+                    base_station = bs
+                    contin = conditions_true(p, user.provider, base_station.provider, base_station.radio,
+                                             base_station.area_type)
+                    if contin:
+                        if not p.back_up or (user.provider == base_station.provider and p.back_up):
+                            if not p.geographic_failure or (
+                                    p.geographic_failure and (base_station.x, base_station.y) != p.failed_BS_coords):
+                                for channel in base_station.channels:
+                                    SINR, p = sinr(user, base_station, channel, p)
+                                    required_power = calculate_required_power(user, base_station, channel, p)
+                                    if SINR / max(1,
+                                                  len(channel.users)) > best_measure and SINR >= settings.MINIMUM_SNR - settings.PRECISION_MARGIN:
+                                        best_bs = base_station.id
+                                        channel_id = int(channel.id)
+                                        best_SINR = SINR
+                                        SNR, p = snr(user, base_station, channel, p)
+                                        best_measure = SINR / max(len(channel.users), 1)
+                                        #required_power = calculate_required_power(user, base_station, channel, p)
+                                        if required_power < best_power:
+                                            best_power = required_power
+            # if the best found sınr meets requirements, the user associated with tha
             if best_SINR >= settings.MINIMUM_SNR - settings.PRECISION_MARGIN:
                 sinrs_fp[user.id, best_bs] = best_SINR
                 channel_link_fp[user.id, best_bs] = channel_id
                 for c in p.BaseStations[best_bs].channels:
                     if int(c.id) == channel_id:
                         c.add_user(user.id)
-                        """ # Teste, remover!
-                        bs = p.BaseStations[best_bs]
-                        user_coords = (user.x, user.y)
-                        bs_coords = (bs.x, bs.y)
-
-                        d2d = util.distance_2d(bs.x, bs.y, user_coords[0], user_coords[1])
-                        d3d = util.distance_3d(h1=c.height, h2=settings.UE_HEIGHT, d2d=d2d)
-                        # Find gain and losses
-                        antenna_gain = find_antenna_gain(c.main_direction, util.find_geo(bs_coords, user_coords))
-                        path_loss, p = pathloss(p, user.id, bs.id, bs.area_type, d2d, d3d,
-                                                    c.frequency, c.height)
-                        noise = find_noise(c.bandwidth, bs.radio)
-                        interf, p = interference(p, user.id, bs.id, c.frequency, user_coords,
-                                                    c.bs_interferers, user_height=settings.UE_HEIGHT)
-                        newPaux = util.to_pwr(path_loss)*(util.to_pwr(noise) + interf)*(settings.MINIMUM_SNR)/util.to_pwr(antenna_gain)
-                        newPaux_dBW = util.to_pwr(path_loss)*(util.dbm_to_pwr(noise) + interf/1000)*(settings.MINIMUM_SNR)/util.to_pwr(antenna_gain)
-                        maxP_W = util.dbm_to_pwr(c.max_power)
-                        SINR, p = sinr(user, bs, c, p)
-                        shouldBemaxP = util.to_pwr(path_loss)*(util.to_pwr(noise) + interf)*(util.to_pwr(SINR))/util.to_pwr(antenna_gain)
-                        maxP_mW = util.to_pwr(c.max_power)
-                        if(newPaux > util.to_pwr(c.max_power)):
-                            SINR, p = sinr(user, bs, c, p)
-                            bug = 1 """
 
                 links_fp[user.id, best_bs] = 1
                 snrs_fp[user.id, best_bs] = SNR
                 connections_fp[p.BaseStations[best_bs].provider][user.provider] += 1
-            # users that cannot be connected to any BS are marked as disconnected.
-            # if backup is not allowed, they are added to the lists of disconnected users.
             elif p.back_up:
                 disconnected_users.append(user)
             else:
@@ -301,65 +352,82 @@ def find_links_new(p):
                 connections_fp['no'][user.provider] += 1
 
 
-# for each user, it finds the closest base stations and evaluates SNR-SINR
+        # for each user, it finds the closest base stations and evaluates SNR-SINR
         # selects the base station with the best SINR that meets the min. requirements
-           # updates the link associatons, SNR values and connection counts
+        # updates the link associatons, SNR values and connection counts
 
-
-
-        # print(connections)
-        # # print([p.BaseStations[id].provider for id in range(len(p.BaseStations))])
-        # print('Total number of disconnected users:', len(disconnected_users), 'out of', len(p.users))
-        # print('Disconnected per MNO:', disconnected)
-
-
-        for user in disconnected_users:
-            best_SINR = - math.inf
-            best_measure = -math.inf
-            user_coords = (user.x, user.y)
-            BSs = util.find_closest_BS(user_coords, p.xbs, p.ybs)
-            for bs in BSs[:maximum]:  # assuming that the highest SNR BS will be within the closest 10 BSs
-                base_station = p.BaseStations[bs]
-                if base_station.provider != user.provider:
-                    for channel in base_station.channels:
-                        SINR, p = sinr(user, base_station, channel, p)
-                        # a user connects to the BS with highest SINR/degree
-                        if SINR / max(1,
-                                      len(channel.users)) > best_measure and SINR >= settings.MINIMUM_SNR - settings.PRECISION_MARGIN:
-                            best_bs = bs
-                            channel_id = int(channel.id)
-                            best_SINR = SINR
-                            SNR, p = snr(user, base_station, channel, p)
-                            best_measure = SINR / max(len(channel.users), 1)
-            if best_SINR >= settings.MINIMUM_SNR - settings.PRECISION_MARGIN:
-                sinrs_fp[user.id, best_bs] = best_SINR
-                channel_link_fp[user.id, best_bs] = channel_id
-                for c in p.BaseStations[best_bs].channels:
-                    if int(c.id) == channel_id:
-                        c.add_user(user.id)
-                links_fp[user.id, best_bs] = 1
-                snrs_fp[user.id, best_bs] = SNR
-                connections_fp[p.BaseStations[best_bs].provider][user.provider] += 1
-            else:
-                FDP_fp[user.id] = 1
-                connections_fp['no'][user.provider] += 1
-
-        # print(connections_disconnected)
         bar.finish()
+        # Sort base stations by the number of connected users
+        #bs_user_count = [(bs, sum([len(c.users) for c in bs.channels])) for bs in p.BaseStations]
+        #bs_user_count.sort(key=lambda x: x[1])  # Sort by user count
 
-        print('Now, we find the capacities')
+    #Reallocate users from underutilized BSs to other BSs
+        for bs in p.BaseStations:
+            if sum([len(c.users) for c in bs.channels]) < 2:
+                for c in bs.channels:
+                    for user_id in c.users[:]:  # copy of the list to modify it during iteration
+                        user = p.users[user_id]
+                        best_SINR = -math.inf
+                        best_measure = -math.inf
+                        best_power = math.inf
+                        user_coords = (user.x, user.y)
+                        # Sort base stations by the number of connected users before reallocation
+                        bs_user_count = [(bs2, sum([len(c2.users) for c2 in bs2.channels])) for bs2 in p.BaseStations if
+                                         bs2 != bs]
+                        bs_user_count.sort(key=lambda x: x[1])  # Sort by user count in ascending order
+                        sorted_base_stations_realloc = [bs2 for bs2, count in bs_user_count]
+                        for bs2 in sorted_base_stations_realloc:
+                            if bs2 != p.failed_BS and bs2.id != bs.id:
+                                base_station2 = bs2
+                                if not p.back_up or (user.provider == base_station2.provider and p.back_up):
+                                    if not p.geographic_failure or (p.geographic_failure and (
+                                    base_station2.x, base_station2.y) != p.failed_BS_coords):
+                                        for channel2 in base_station2.channels:
+                                            SINR, p = sinr(user, base_station2, channel2, p)
+                                            required_power = calculate_required_power(user, base_station2, channel2, p)
+                                            if SINR / max(1,
+                                                          len(channel2.users)) > best_measure and SINR >= settings.MINIMUM_SNR - settings.PRECISION_MARGIN:
+                                                best_bs2 = bs2.id
+                                                channel_id2 = int(channel2.id)
+                                                best_SINR = SINR
+                                                SNR, p = snr(user, base_station2, channel2, p)
+                                                best_measure = SINR / max(len(channel2.users), 1)
+
+                                                if required_power < best_power:
+                                                    best_power = required_power
+                        if best_SINR >= settings.MINIMUM_SNR - settings.PRECISION_MARGIN:
+                            sinrs_fp[user.id, best_bs2] = best_SINR
+                            channel_link_fp[user.id, best_bs2] = channel_id2
+                            for c2 in p.BaseStations[best_bs2].channels:
+                                if int(c2.id) == channel_id2:
+                                    c2.add_user(user.id)
+                            links_fp[user.id, best_bs2] = 1
+                            snrs_fp[user.id, best_bs2] = SNR
+                            connections_fp[p.BaseStations[best_bs2].provider][user.provider] += 1
+
+                            c.users.remove(user.id)
+                            links_fp[user.id, bs.id] = 0
+                            sinrs_fp[user.id, bs.id] = 0
+                            snrs_fp[user.id, bs.id] = 0
+                            channel_link_fp[user.id, bs.id] = 0
+                            connections_fp[bs.provider][user.provider] -= 1
+
+        before_power, after_power = update_power_after_reallocation_and_bandwidth(p)
+        #print('Now, we find the capacities')
 
         capacities_fp, FSP_fp = find_capacity(p, sinrs_fp)
-
+        # After reassigning users, check the total number of connected users again
+        total_connected_users_after = sum([len(c.users) for bs in p.BaseStations for c in bs.channels])
+        print(f"Total connected users after reallocation: {total_connected_users_after}")
         # Calculate the total power
         total_p_fp = 0.0
         power_per_MNO_fp = {MNO: 0 for MNO in ['KPN', 'T-Mobile', 'Vodafone']}
         for bs in p.BaseStations:
-            #base_station_totalpower = 0
+            # base_station_totalpower = 0
             base_station_totalpower = settings.POWER_DSP + settings.POWER_AIRCOND + settings.MICROWAVELINK_POWER + settings.POWER_RECT + settings.POWER_TRANSCEIVER
 
             for c in bs.channels:
-                if len(c.users) == 0: # when there is no user connected, enter the BSs sleep mode
+                if len(c.users) == 0:  # when there is no user connected, enter the BSs sleep mode
                     channel_power = settings.SLEEP_POWER
                 else:
                     channel_power = util.to_pwr(c.power - 30)
@@ -369,17 +437,7 @@ def find_links_new(p):
             power_per_MNO_fp[bs.provider] += base_station_totalpower
             total_p_fp += base_station_totalpower
 
-        # channel_power = util.dbm_to_pwr(c.power - 30)  # Convert from dBm to mW once
-        # power_per_MNO_fp[bs.provider] += channel_power  # Accumulate power per MNO
-        # base_station_totalpower += channel_power
-
-        # Recalculate the SINRs (and everything that depends on it, e.g FSP) here using only the necessary power to meet the requiremets? Maybe after that, more users cold be conected due to less interference.
-        # TODO:
-        # [x] add a new variable to represent the max power per channel and use the channel.power as an adaptative transmit power
-        # [x] Solve a power min prob. (for each channel iteratively or globally?) with a constraint on the data rate requirement (assume user association as given and only decide on the power)
-        # [x] If outage, use full power.
-        # [x] Save links to avoid long simulation for test purposes?
-        # [x] Calculate FSP, FDP etc with the old approach (using full power), then compare with the new approach
+        print(f'Total power after initial allocation: {total_p_fp}')
         links = lil_matrix((p.number_of_users, p.number_of_bs))
         snrs = lil_matrix((p.number_of_users, p.number_of_bs))
         sinrs = lil_matrix((p.number_of_users, p.number_of_bs))
@@ -404,14 +462,9 @@ def find_links_new(p):
                 for c in bs.channels:
                     if len(c.users) > 0:
                         # first, find the spectral efficiency of all users in this channel
-                        # SE = [math.log2(1 + util.to_pwr(sinrs[user, bs.id])) for user in c.users]
                         SE = [math.log2(1 + util.to_pwr(sinr(p.users[user], bs, c, p)[0])) for user in c.users]
-                        # then, we find the required bandwidth per user
                         BW = [p.users[user].rate_requirement / SE[i] for i, user in zip(range(len(SE)), c.users)]
-                        # Fraction of required BW
                         frac_BW = np.sum([BW[i] / c.bandwidth for i in range(len(BW))])
-                        # Nii = [frac_BW*c.bandwidth/BW[i] for i in range(len(BW))]
-                        # if there is more BW required than the channel has, we decrease the BW with that percentage for everyone
                         BW = np.multiply(min(len(c.users), 1) * c.bandwidth / sum(BW), BW)
                         Ei = BW / c.bandwidth
                         # Ni = 1/Ei
@@ -465,19 +518,17 @@ def find_links_new(p):
 
                                 d2d = util.distance_2d(bs.x, bs.y, user_coords[0], user_coords[1])
                                 d3d = util.distance_3d(h1=c.height, h2=settings.UE_HEIGHT, d2d=d2d)
-                                # Find gain and losses
                                 antenna_gain = find_antenna_gain(c.main_direction,
                                                                  util.find_geo(bs_coords, user_coords))
-                                path_loss, p = pathloss(p, user_obj.id, bs.id, bs.area_type, d2d, d3d,
-                                                        c.frequency, c.height)
+                                path_loss, p = pathloss(p, user_obj.id, bs.id, bs.area_type, d2d, d3d, c.frequency,
+                                                        c.height)
                                 noise = find_noise(c.bandwidth, bs.radio)
                                 interf, p = interference(p, user_obj.id, bs.id, c.frequency, user_coords,
                                                          c.bs_interferers, user_height=settings.UE_HEIGHT)
-                                # Minimum power (im mW) to transmit in the req data rate
                                 newPaux = util.to_pwr(path_loss) * (util.to_pwr(noise) + interf) * (2 ** (
                                             (user_obj.rate_requirement) / (Ei[i] * c.bandwidth)) - 1) / util.to_pwr(
                                     antenna_gain)
-                                if (newPaux > newP):
+                                if newPaux > newP:
                                     newP = newPaux
                                 # Minimum power (im mW) to stay connected
                                 newPaux = util.to_pwr(path_loss) * (util.to_pwr(noise) + interf) * (
@@ -486,20 +537,23 @@ def find_links_new(p):
                                 if (newPaux > newP):
                                     newP = newPaux
                             # power amplifier efficiency integration with antenna transmission power
-                            #newP /= poweramp_eff #newP is the transmission power
+                            # newP /= poweramp_eff #newP is the transmission power
                             newP_dBm = util.to_db(newP)
-                            c.update_power(newP) # Power in mW
+                            #print(f"BS {bs.id} channel {c.id} power updated from {c.power} to {newP_dBm}")
+                            c.update_power(newP)  # Power in mW
                     else:
                         c.update_power(0)  # Power in mW
+
+                        #print(f"BS {bs.id} channel {c.id} power set to 0 due to no users")
             bar.finish()
             # Calculate the total power
             total_p = 0.0
             power_per_MNO = {MNO: 0 for MNO in ['KPN', 'T-Mobile', 'Vodafone']}
             for bs in p.BaseStations:
-                #bs_totalpower = 0  # initialize total power cons. for the current BS
+                # bs_totalpower = 0  # initialize total power cons. for the current BS
                 bs_totalpower = settings.POWER_DSP + settings.POWER_AIRCOND + settings.MICROWAVELINK_POWER + settings.POWER_RECT + settings.POWER_TRANSCEIVER
                 for c in bs.channels:
-                    if len(c.users) == 0: #sleep mode integration
+                    if len(c.users) == 0:  # sleep mode integration
                         channel_power = settings.SLEEP_POWER
                     else:
                         channel_power = util.to_pwr(c.power - 30)
@@ -509,9 +563,10 @@ def find_links_new(p):
                 power_per_MNO[bs.provider] += bs_totalpower
                 total_p += bs_totalpower
             # print(f"Power iteration {iter}: {total_p}")
-
+        # Main loop to test different values of minimum_user_per_bs
+        print(f'Total power after power adjustment: {total_p}')
+        print(f'Power reduction: {total_p_fp - total_p}')
         fraction_power = total_p_fp / total_p
-
         # Recalculate links, FDP etc.
         bar = progressbar.ProgressBar(maxval=p.number_of_users, widgets=[
             progressbar.Bar('=', f'Recalculating SINR, FSP, etc. {p.filename} [', ']'), ' ',
@@ -549,7 +604,9 @@ def find_links_new(p):
                 BSs = util.find_closest_BS(user_coords, p.xbs, p.ybs)
                 best_SINR = - math.inf
                 best_measure = -math.inf
-                for bs in BSs[:maximum]:
+                best_bs = None
+                channel_id = None
+                for bs in BSs:
                     base_station = p.BaseStations[bs]
                     for channel in base_station.channels:
                         SINR, p = sinr(user, base_station, channel, p)
@@ -573,16 +630,9 @@ def find_links_new(p):
                 else:
                     FDP[user.id] = 1
                     # connections['no'][user.provider] += 1 # it already accounted for it
-
-        # print(connections)
-        # # print([p.BaseStations[id].provider for id in range(len(p.BaseStations))])
-        # print('Total number of disconnected users:', len(disconnected_users), 'out of', len(p.users))
-        # print('Disconnected per MNO:', disconnected)
-
-        # print(connections_disconnected)
         bar.finish()
 
-        print('Now, we find the capacities')
+        #print('Now, we find the capacities')
 
         capacities, FSP = find_capacity(p, sinrs)
 
@@ -598,6 +648,7 @@ def find_links_new(p):
         util.to_data(FSP_fp, f'data/Realisations/{p.filename}{p.seed}_FSP_fp.p')
         util.to_data(connections_fp, f'data/Realisations/{p.filename}{p.seed}_connections_fp.p')
         util.to_data(power_per_MNO_fp, f'data/Realisations/{p.filename}{p.seed}_power_per_MNO_fp.p')
+        # Main loop to test different values of minimum_user_per_bs
 
         if p.seed == 1:
             util.to_data(links, f'data/Realisations/{p.filename}{p.seed}_links.p')
@@ -608,14 +659,15 @@ def find_links_new(p):
         util.to_data(FSP, f'data/Realisations/{p.filename}{p.seed}_FSP.p')
         util.to_data(connections, f'data/Realisations/{p.filename}{p.seed}_connections.p')
         util.to_data(power_per_MNO, f'data/Realisations/{p.filename}{p.seed}_power_per_MNO.p')
-
+        print(f'Initial total power: {total_p}')
+        print(f'Final total power after optimization: {total_p_fp}')
+        print(f'Total power reduction: {total_p - total_p_fp}')
     # return links, channel_link, snrs, sinrs, capacities, FDP, FSP, connections
     # return links_fp, channel_link_fp, snrs_fp, sinrs_fp, capacities_fp, FDP_fp, FSP_fp, connections_fp, total_p_fp
     return [links, links_fp], [channel_link, channel_link_fp], [snrs, snrs_fp], [sinrs, sinrs_fp], [capacities,
                                                                                                     capacities_fp], [
         FDP, FDP_fp], [FSP, FSP_fp], [connections, connections_fp], [power_per_MNO,
                                                                      power_per_MNO_fp]  # [total_p, total_p_fp]
-
 
 def find_links(p):
     links = util.from_data(f'data/Realisations/{p.filename}{p.seed}_links.p')
@@ -694,11 +746,6 @@ def find_links(p):
                 FDP[user.id] = 1
                 connections['no'][user.provider] += 1
 
-        # print(connections)
-        # # print([p.BaseStations[id].provider for id in range(len(p.BaseStations))])
-        # print('Total number of disconnected users:', len(disconnected_users), 'out of', len(p.users))
-        # print('Disconnected per MNO:', disconnected)
-
         for user in disconnected_users:
             best_SINR = - math.inf
             best_measure = -math.inf
@@ -745,10 +792,6 @@ def find_links(p):
         util.to_data(FSP, f'data/Realisations/{p.filename}{p.seed}_FSP.p')
 
     return links, channel_link, snrs, sinrs, capacities, FDP, FSP, connections
-
-
-
-
 
 
 def find_capacity(p, sinrs):
@@ -844,9 +887,9 @@ def find_links_QoS(p):
 
         #
         # print(connections)
-        # # print([p.BaseStations[id].provider for id in range(len(p.BaseStations))])
-        # print('Total number of disconnected users:', len(disconnected_users), 'out of', len(p.users))
-        # print('Disconnected per MNO:', disconnected)
+        print([p.BaseStations[id].provider for id in range(len(p.BaseStations))])
+        print('Total number of disconnected users:', len(disconnected_users), 'out of', len(p.users))
+        #print('Disconnected per MNO:', disconnected)
 
         print('Now, we find the capacities in the first round')
         capacites, FSP = find_capacity(p, sinrs)
@@ -860,7 +903,8 @@ def find_links_QoS(p):
             best_measure = -math.inf
             user_coords = (user.x, user.y)
             BSs = util.find_closest_BS(user_coords, p.xbs, p.ybs)
-            for bs in BSs[:maximum]:  # assuming that the highest SNR BS will be within the closest 10 BSs
+            for bs in BSs[
+                      :maximum]:  # assuming that the highest SNR BS will be within the closest 20 BSs (* increase this maximum threshold * )
                 base_station = p.BaseStations[bs]
                 if base_station.provider != user.provider:
                     for channel in base_station.channels:
@@ -902,4 +946,5 @@ def find_links_QoS(p):
         util.to_data(FSP, f'data/Realisations/{p.filename}{p.seed}_FSPQOS.p')
 
     return links, channel_link, snrs, sinrs, capacities, FDP, FSP, connections
+
 
