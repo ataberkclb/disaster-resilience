@@ -6,7 +6,7 @@ import generate_users
 import models
 import objects.Params as p
 import util
-
+import pickle
 warnings.filterwarnings("ignore", category=ShapelyDeprecationWarning)
 
 # provinces = ['Drenthe', 'Flevoland', 'Friesland', 'Groningen', 'Limburg', 'Overijssel', 'Utrecht', 'Zeeland',
@@ -15,17 +15,16 @@ warnings.filterwarnings("ignore", category=ShapelyDeprecationWarning)
 #                   'Eindhoven', "'s-Gravenhage", 'Amsterdam', 'Almere']
 
 # provinces = ['Overijssel', 'Friesland', 'Utrecht']
-municipalities = ['Middelburg', 'Enschede', 'Amsterdam']
+municipalities = ['Middelburg', 'Enschede']
 # municipalities = ['Amsterdam']
-
 # provinces = ['Noord-Holland']
-# municipalities = ['Amsterdam']
 
-# MNOS = [['KPN'], ['T-Mobile'], ['Vodafone'], ['KPN', 'Vodafone', 'T-Mobile']]
-# MNOS = [['KPN'], ['T-Mobile'], ['Vodafone']]
+
+#MNOS = [['KPN'], ['T-Mobile'], ['Vodafone'], ['KPN', 'Vodafone', 'T-Mobile']]
+#MNOS = [['KPN'], ['T-Mobile'], ['Vodafone']]
+#MNOS = [['Vodafone', 'T-Mobile']]
+
 MNOS = [['KPN', 'Vodafone', 'T-Mobile']]
-# MNOS = [['Vodafone', 'T-Mobile']]
-
 fdp_per_MNO = {MNO: list() for MNO in ['KPN', 'T-Mobile', 'Vodafone']}
 fsp_per_MNO = {MNO: list() for MNO in ['KPN', 'T-Mobile', 'Vodafone']}
 fdp_per_MNO_fp = {MNO: list() for MNO in ['KPN', 'T-Mobile', 'Vodafone']}
@@ -34,12 +33,11 @@ fsp_per_MNO_fp = {MNO: list() for MNO in ['KPN', 'T-Mobile', 'Vodafone']}
 radius_disaster = 0  # 0, or a value if there is a disaster in the center of the region with radius
 random_failure = 0 # 0.1  # BSs randomly fail with this probability
 user_increase = 0  # an increase in number of users
-back_up = True
-# back_up = False
+#back_up = True
+back_up = False
 
-# sharing = ['T-Mobile', 'Vodafone']
 sharing = MNOS[0]
-#sharing = None (no cooperation)
+#sharing = None
 radii = [500, 1000, 2500]
 increases = [50, 100, 200]
 #random = [0.05, 0.1, 0.25, 0.5]
@@ -47,11 +45,10 @@ increases = [50, 100, 200]
 random = [0]
 
 
-max_iterations = 2 #50
-
+max_iterations = 3
 # technologies = None #[[util.BaseStationRadioType.NR]]
 technologies = [[util.BaseStationRadioType.UMTS], [util.BaseStationRadioType.NR], [util.BaseStationRadioType.LTE]]
-areas =  None #[util.AreaType.UMI]
+areas = None #[util.AreaType.UMI]
 # areas = [[util.AreaType.UMI], [util.AreaType.UMA], [util.AreaType.RMA]]
 # fig, ax = plt.subplots()
 
@@ -86,8 +83,7 @@ for technology in [None]: #technologies:
 
                 percentage = 2 / 100  # percentage of active users
 
-                seed = iteration # 
-
+                seed = iteration
                 params = p.Parameters(seed, zip_codes, mno, percentage, buffer_size=2000, city_list=cities,
                                       province=province, radius_disaster=radius_disaster, random_failure=random_failure,
                                       user_increase=user_increase, capacity_distribution=False, back_up=back_up,
@@ -106,7 +102,16 @@ for technology in [None]: #technologies:
                     links, link_channel, snr, sinr, capacity, FDP, FSP, connections = models.find_links(params)
                     # links, link_channel, snr, sinr, capacity, FDP, FSP, interference_loss, connections = models.find_links_QoS(params)
 
-                print(f'There are {params.number_of_bs} BSs and {params.number_of_users} users. Iter {seed}')
+                before_power, after_power = models.update_power_after_reallocation_and_bandwidth(params)
+
+                power_data = {
+                    'before_power': before_power,
+                    'after_power': after_power  }
+
+                with open('power_data.pkl', 'wb') as f:
+                    pickle.dump(power_data, f)
+
+
                 if with_power_control:
                     FSP_fp = FSP[1]
                     FDP_fp = FDP[1]
@@ -114,7 +119,7 @@ for technology in [None]: #technologies:
                     FSP = FSP[0]
                     FDP = FDP[0]
                     power_per_MNO = power_per_MNO[0]
-                    
+
                     p_per_mno_fp.append(power_per_MNO_fp)
                     for mno_aux in ['KPN', 'Vodafone', 'T-Mobile']:
                         print(f'POWER FP {mno_aux} = {power_per_MNO_fp[mno_aux]} W')
@@ -162,6 +167,7 @@ for technology in [None]: #technologies:
                 fdp_per_MNO_fp.append(fdp_per_MNO_fp_aux)
                 fsp_per_MNO_fp.append(fsp_per_MNO_fp_aux)
                 """ #links, link_channel, snr, sinr, capacity, FDP, FSP, connections = models.find_links(params)
+                
                 # links, link_channel, snr, sinr, capacity, FDP, FSP, interference_loss, connections = models.find_links_QoS(params)
                 #
                 fraction_satisified_pop = sum(FSP) / params.number_of_users
@@ -177,18 +183,19 @@ for technology in [None]: #technologies:
                 for user in params.users:
                     MNO = user.provider
                     id = user.id
-                    fdp_per_MNO[MNO].append(FDP[id])
-                    fsp_per_MNO[MNO].append(FSP[id]) """
+                    #fdp_per_MNO[MNO].append(FDP[id])
+                    #fsp_per_MNO[MNO].append(FSP[id]) """
+
 
                 for k, v in connections[0].items():
                     for i, j in v.items():
                         full_connections[k][i].append(j)
-            
-            for k, v in full_connections.items():
-                for i, j in v.items():
+
+           # for k, v in full_connections.items():
+            #    for i, j in v.items():
                     #full_connections[k][i] = sum(j)/len(j)
-                    full_connections[k][i] = 100*(sum(j)/len(j))/(params.number_of_users/3) #percent
-            
+             #       full_connections[k][i] = 100*(sum(j)/len(j))/(params.number_of_users/3) #percent
+
             print(full_connections)
             util.to_data(fdp, f'data/Realisations/{params.filename}{max_iterations}_totalfdp.p')
             util.to_data(fsp, f'data/Realisations/{params.filename}{max_iterations}_totalfsp.p')
@@ -203,7 +210,7 @@ for technology in [None]: #technologies:
                 util.to_data(fdp_per_MNO_fp, f'data/Realisations/{params.filename}{max_iterations}_fdp_per_MNO_fp.p')
                 util.to_data(fsp_per_MNO_fp, f'data/Realisations/{params.filename}{max_iterations}_fsp_per_MNO_fp.p')
 
-        """ if type(MNOS[0]) == list and len(MNOS[0]) == 1:
+        """  if type(MNOS[0]) == list and len(MNOS[0]) == 1:
             lijst = [MNOS[i][0] for i in range(len(MNOS))]
         elif len(MNOS[0]) > 1:
             lijst = MNOS[0]
@@ -222,4 +229,5 @@ for technology in [None]: #technologies:
         if with_power_control:
             util.to_data(fdp_per_MNO_fp, f'data/Realisations/{params.filename}{max_iterations}_fdp_per_MNO_fp.p')
             util.to_data(fsp_per_MNO_fp, f'data/Realisations/{params.filename}{max_iterations}_fsp_per_MNO_fp.p') """
+
 
