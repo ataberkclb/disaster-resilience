@@ -16,14 +16,13 @@ warnings.filterwarnings("ignore", category=ShapelyDeprecationWarning)
 
 # provinces = ['Overijssel', 'Friesland', 'Utrecht']
 municipalities = ['Middelburg', 'Enschede']
-# municipalities = ['Amsterdam']
+#municipalities = ['Amsterdam']
 # provinces = ['Noord-Holland']
 
 
 #MNOS = [['KPN'], ['T-Mobile'], ['Vodafone'], ['KPN', 'Vodafone', 'T-Mobile']]
 #MNOS = [['KPN'], ['T-Mobile'], ['Vodafone']]
 #MNOS = [['Vodafone', 'T-Mobile']]
-
 MNOS = [['KPN', 'Vodafone', 'T-Mobile']]
 fdp_per_MNO = {MNO: list() for MNO in ['KPN', 'T-Mobile', 'Vodafone']}
 fsp_per_MNO = {MNO: list() for MNO in ['KPN', 'T-Mobile', 'Vodafone']}
@@ -45,7 +44,7 @@ increases = [50, 100, 200]
 random = [0]
 
 
-max_iterations = 3
+max_iterations = 2
 # technologies = None #[[util.BaseStationRadioType.NR]]
 technologies = [[util.BaseStationRadioType.UMTS], [util.BaseStationRadioType.NR], [util.BaseStationRadioType.LTE]]
 areas = None #[util.AreaType.UMI]
@@ -101,16 +100,6 @@ for technology in [None]: #technologies:
                 else:
                     links, link_channel, snr, sinr, capacity, FDP, FSP, connections = models.find_links(params)
                     # links, link_channel, snr, sinr, capacity, FDP, FSP, interference_loss, connections = models.find_links_QoS(params)
-
-                before_power, after_power = models.update_power_after_reallocation_and_bandwidth(params)
-
-                power_data = {
-                    'before_power': before_power,
-                    'after_power': after_power  }
-
-                with open('power_data.pkl', 'wb') as f:
-                    pickle.dump(power_data, f)
-
 
                 if with_power_control:
                     FSP_fp = FSP[1]
