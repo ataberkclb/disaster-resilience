@@ -72,7 +72,7 @@ def sinr(user, base_station, channel, params):
             interf, params = interference(params, user.id, base_station.id, channel.frequency, user_coords,
                                           channel.bs_interferers, user_height=settings.UE_HEIGHT)
             return util.to_db(util.to_pwr(power) * util.to_pwr(antenna_gain) / util.to_pwr(path_loss) / (
-                        util.to_pwr(noise) + interf)), params
+                    util.to_pwr(noise) + interf)), params
         else:
             return -math.inf, params
     else:
@@ -298,7 +298,7 @@ def find_links_new(p):
         FDP_fp = np.zeros(p.number_of_users)
 
         maximum = 20  # number of base stations
-        MINIMUM_USER_BS = 2  # number of user threshold #chosen comparing to power consumption result and trend was lower power consumption when this threshold reduced
+        MINIMUM_USER_BS = 10  # number of user threshold #chosen comparing to power consumption result and trend was lower power consumption when this threshold reduced
 
         bar = progressbar.ProgressBar(maxval=p.number_of_users, widgets=[
             progressbar.Bar('=', f'Finding links {p.filename} [', ']'), ' ',
@@ -433,18 +433,19 @@ def find_links_new(p):
         power_per_MNO_fp = {MNO: 0 for MNO in ['KPN', 'T-Mobile', 'Vodafone']}
         for bs in p.BaseStations:
             # base_station_totalpower = 0
-            base_station_totalpower = settings.POWER_DSP + settings.POWER_AIRCOND + settings.MICROWAVELINK_POWER + settings.POWER_RECT + settings.POWER_TRANSCEIVER
-
+            base_station_totalpower = (settings.POWER_AIRCOND + settings.MICROWAVELINK_POWER + settings.POWER_RECT)  # load independent comp.
+            #load_factor = c.power / c.max_power
+            base_station_totalpower += (settings.POWER_DSP + settings.POWER_TRANSCEIVER) # load-dependent components
             for c in bs.channels:
                 if len(c.users) == 0:  # when there is no user connected, enter the BSs sleep mode
-                    channel_power = settings.SLEEP_POWER
+                    base_station_totalpower = settings.SLEEP_POWER
                 else:
                     channel_power = util.to_pwr(c.power - 30)
                     channel_power /= settings.poweramp_eff
-                base_station_totalpower += channel_power  # add power cons. of the current channel to the total power
+                    base_station_totalpower += channel_power
 
-            power_per_MNO_fp[bs.provider] += base_station_totalpower
-            total_p_fp += base_station_totalpower
+            power_per_MNO_fp[bs.provider] += base_station_totalpower  # total power cons. for each MNO
+            total_p_fp += base_station_totalpower  # overall power consumption in the network
 
         print(f'Total power after initial allocation: {total_p_fp}')
         links = lil_matrix((p.number_of_users, p.number_of_bs))
@@ -559,19 +560,21 @@ def find_links_new(p):
             total_p = 0.0
             power_per_MNO = {MNO: 0 for MNO in ['KPN', 'T-Mobile', 'Vodafone']}
             for bs in p.BaseStations:
-                # bs_totalpower = 0  # initialize total power cons. for the current BS
-                bs_totalpower = settings.POWER_AIRCOND + settings.MICROWAVELINK_POWER + settings.POWER_RECT # load independent comp.
+                bs_totalpower = (settings.POWER_AIRCOND + settings.MICROWAVELINK_POWER + settings.POWER_RECT) # load independent
+                #load_factor = c.power / c.max_power
+                bs_totalpower += (settings.POWER_DSP + settings.POWER_TRANSCEIVER) # load dependent
                 for c in bs.channels:
                     if len(c.users) == 0:  # sleep mode integration
-                        channel_power = settings.SLEEP_POWER
+                        #channel_power = settings.SLEEP_POWER
+                        bs_totalpower = settings.SLEEP_POWER
                     else:
                         channel_power = util.to_pwr(c.power - 30)
                         channel_power /= settings.poweramp_eff
-                    bs_totalpower += channel_power + settings.POWER_DSP + settings.POWER_TRANSCEIVER
+                        bs_totalpower += channel_power
 
-                power_per_MNO[bs.provider] += bs_totalpower # total power cons. for each MNO
-                total_p += bs_totalpower # overall power consumption in the network
-            # print(f"Power iteration {iter}: {total_p}")
+                power_per_MNO[bs.provider] += bs_totalpower  # total power cons. for each MNO
+                total_p += bs_totalpower  # overall power consumption in the network
+
         # Main loop to test different values of minimum_user_per_bs
         print(f'Total power after power adjustment: {total_p}')
         print(f'Power reduction: {total_p_fp - total_p}')
@@ -956,5 +959,3 @@ def find_links_QoS(p):
         util.to_data(FSP, f'data/Realisations/{p.filename}{p.seed}_FSPQOS.p')
 
     return links, channel_link, snrs, sinrs, capacities, FDP, FSP, connections
-
-
